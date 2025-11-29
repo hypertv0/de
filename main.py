@@ -2,15 +2,16 @@ import requests
 from flask import Flask, request, abort, redirect
 import os
 
-# Flask uygulamasının adını 'app' yerine 'main.py' dosyasının içindeki 'app' olarak belirliyoruz.
-# Gunicorn bunu bu şekilde anlar.
 app = Flask(__name__)
 
-# --- Dezor/Kool.to Kimlik Doğrulama ve Link Çözümleme Bölümü ---
+# --- YENİ: Kendi CORS Proxy Adresimiz ---
+CORS_PROXY_URL = "https://corsproxy.hypercors.workers.dev/?url="
+
 class DezorKoolResolver:
     def __init__(self):
         self.session = requests.Session()
-        self.api_url = "https://www.dezor.net/api/app/ping"
+        # API adresini artık CORS proxy üzerinden çağıracağız
+        self.api_url = f"{CORS_PROXY_URL}https://www.dezor.net/api/app/ping"
         
         self.headers = {
             "user-agent": "Rokkr/1.8.3 (android)",
@@ -33,11 +34,11 @@ class DezorKoolResolver:
         json_to_send['bundle'] = "to.kool.pro"
 
         try:
-            print(f"[*] Dezor API'sine istek gönderiliyor: {link}")
-            resp = self.session.post(self.api_url, json=json_to_send, headers=self.headers, timeout=25)
+            print(f"[*] CORS Proxy üzerinden Dezor API'sine istek gönderiliyor...")
+            resp = self.session.post(self.api_url, json=json_to_send, headers=self.headers, timeout=30)
             
             if resp.status_code != 200:
-                print(f"[HATA] Dezor API'si hata döndü: {resp.status_code} - {resp.text}")
+                print(f"[HATA] Dezor API'si (CORS Proxy üzerinden) hata döndü: {resp.status_code} - {resp.text}")
                 abort(resp.status_code, f"Dezor API'si hata döndü: {resp.text}")
             
             result = resp.json()
@@ -50,13 +51,13 @@ class DezorKoolResolver:
             return final_url
             
         except requests.RequestException as e:
-            print(f"[HATA] Dezor API'sine bağlanılamadı: {e}")
-            abort(503, f"Dezor kimlik doğrulama sunucusuna ulaşılamadı: {e}")
+            print(f"[HATA] CORS Proxy veya Dezor API'sine bağlanılamadı: {e}")
+            abort(503, f"Kimlik doğrulama sunucusuna ulaşılamadı: {e}")
 
 # --- Web Sunucusu Uç Noktaları ---
 @app.route('/')
 def index():
-    return "Kool.to Resolver Sunucusu Aktif. /play/KOOL_ID.m3u8 formatını kullanın.", 200
+    return "Kool.to Resolver (CORS Proxy Destekli) Aktif.", 200
 
 @app.route('/play/<kool_id>.m3u8')
 def play_kool_stream(kool_id):
@@ -71,9 +72,10 @@ def play_kool_stream(kool_id):
         return redirect(final_m3u8_url, code=307)
         
     except Exception as e:
-        print(f"İstek sırasında bir hata oluştu: {e}")
+        # Abort zaten bir cevap oluşturduğu için burada ekstra bir return'e gerek yok.
         pass
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 8080))
+    # Render'da Start Command ile Gunicorn kullanılacağı için bu blok çalışmaz.
     app.run(host="0.0.0.0", port=port)
